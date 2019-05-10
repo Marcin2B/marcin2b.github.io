@@ -1,0 +1,705 @@
+---
+title: "Twitter Analysis: neonicotynoids and glyphosate"
+output: html_notebook
+---
+
+```{r}
+library(rtweet) # wyszukiwanie, pobieranie tweetóW
+library(tm, qdap)
+library(tidytext, tidyr, dplyr)
+library(wordcloud)
+library(dendextend) # wizualizacja klastrów w dendrogramie
+library(ggplot2, ggthemes)
+library(syuzhet) # sentiment analysis
+```
+
+###################################################################################
+#### search and colecting data from twitter ####
+###################################################################################
+```{r}
+# create_token(
+# app = "neonicotinoids",
+# api_key <- "",
+# api_secret <- "",
+# access_token <- "",
+# access_token_secret <- "") 
+```
+
+```{r}
+# #search neonics tweets, without retweets
+# neonics <- search_tweets("neonicotinoid OR neonicotinoids OR neonic OR neonics", n=250000, include_rts = FALSE, retryonratelimit = FALSE, lang = "en")
+# dim(neonics)
+# # [1] 445  88
+# range(neonics$created_at)
+# # [1] "2019-01-20 11:04:32 UTC" "2019-01-30 10:05:44 UTC"
+# 
+# # search glyphosate tweets, without retweets
+# glyphosate <- search_tweets("glyphosate", n=250000, include_rts = FALSE, retryonratelimit = FALSE, lang = "en")
+# dim(glyphosate)
+# # [1] 3716    88
+# range(glyphosate$created_at)
+# # [1] "2019-01-20 11:34:05 UTC" "2019-01-30 10:06:02 UTC"
+# 
+# # export full data to csv
+# write_as_csv(neonics, file_name = "neonics_twitter.csv")
+# write_as_csv(glyphosate, file_name = "glyphosate_twitter.csv")
+```
+
+###################################################################################
+#### import of csv files containing tweets ####
+###################################################################################
+
+```{r}
+# import tweets
+neonics_imp <- read.csv("neonics_twitter.csv", stringsAsFactors = FALSE)
+glyphosate_imp <- read.csv("glyphosate_twitter.csv", stringsAsFactors = FALSE)
+# only text of tweets for futher consideration
+neonics_txt <- neonics_imp$text
+glyphosate_txt <- glyphosate_imp$text
+# plot number of tweets
+number_tweets <- data.frame(chemicals = c("neonics", "glyphosate"), 
+                            number_of_tweets = c(length(neonics_txt), length(glyphosate_txt)))
+
+ggplot(number_tweets, aes(x = chemicals, y = number_of_tweets)) + 
+  geom_bar(stat = "identity", fill = c("skyblue4", "chocolate2")) +
+  ggtitle("Number of tweets on two groups of pesticides, posted in 10 days window 
+          (20.01.2019 - 30.01.2019)") +
+  xlab("group of pesticides") +
+  ylab("number of tweets") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+# 445 tweets on neonics
+# 3716 tweets on glyphosate
+```
+
+###################################################################################
+#### preparing corpus, cleaning corpus ####
+###################################################################################
+
+```{r}
+
+# quick look
+neonics_txt[1:3]
+neonics_txt[100:103]
+glyphosate_txt[1:3]
+glyphosate_txt[100:103]
+
+# neonics_vector_source
+neonics_vector_source <- VectorSource(neonics_txt)
+# neonics corpus
+neonics_VC <- VCorpus(neonics_vector_source)
+
+inspect(neonics_VC[[5]])
+
+# cleaining text, pre-processing text
+neonics_VC <- tm_map(neonics_VC, content_transformer(tolower))
+neonics_VC <- tm_map(neonics_VC, stripWhitespace)
+neonics_VC <- tm_map(neonics_VC, content_transformer(rm_url)) # qdap package
+neonics_VC <- tm_map(neonics_VC, removePunctuation)
+neonics_VC <- tm_map(neonics_VC, removeNumbers)
+# neonics_VC <- tm_map(neonics_VC, content_transformer(rm_stopwords)) # do ew. wykorzystania z pakietu qdap
+neonics_VC <- tm_map(neonics_VC, removeWords,  c(c("neonics", "neonicotinoids", "neonicotinoid", "neonic"), 
+                                                 stopwords("en")))
+# stemming
+neonics_VC<-tm_map(neonics_VC, stemDocument)
+
+# quick look
+inspect(neonics_VC[[1]])
+#inspect(neonics_VC[[10]])
+#inspect(neonics_VC[[100]])
+```
+
+# the same for glyphosate
+```{r}
+glyphosate_vector_source <- VectorSource(glyphosate_txt)
+glyphosate_VC <- VCorpus(glyphosate_vector_source)
+# inspect(glyphosate_VC)
+inspect(glyphosate_VC[[5]])
+glyphosate_VC <- tm_map(glyphosate_VC, content_transformer(tolower))
+glyphosate_VC <- tm_map(glyphosate_VC, stripWhitespace)
+glyphosate_VC <- tm_map(glyphosate_VC, content_transformer(rm_url)) # qdap package
+glyphosate_VC <- tm_map(glyphosate_VC, removePunctuation)
+glyphosate_VC <- tm_map(glyphosate_VC, removeNumbers)
+glyphosate_VC <- tm_map(glyphosate_VC, removeWords,  c(c("glyphosate"), stopwords("en")))
+glyphosate_VC<-tm_map(glyphosate_VC, stemDocument)
+
+inspect(glyphosate_VC[[1]])
+#inspect(glyphosate_VC[[10]])
+#inspect(glyphosate_VC[[100]])
+```
+
+
+
+###################################################################################
+#### creating TDM, frequent words
+###################################################################################
+
+```{r}
+neonics_TDM <- TermDocumentMatrix(neonics_VC)
+inspect(neonics_TDM[1:10,])
+
+# matrix
+neonics_TDM_m <- as.matrix(neonics_TDM)
+dim(neonics_TDM_m) # [1] 1519  445
+#frequent terms
+neonics_FREQ <- rowSums(neonics_TDM_m)
+neonics_FREQ <- sort(neonics_FREQ, decreasing = TRUE)
+neonics_FREQ[1:20]
+# bee            via theorganicview       pesticid            ban            amp        beekeep            die  theorgancview        discuss 
+# 205            186            146            133             55             40             40             40             39             37 
+# use        honeybe          learn       research           will           mani          water         listen           view           need 
+# 36             33             29             29             29             26             26             25             25             24 
+
+# plot frequent words 
+# barplot(neonics_FREQ[1:25], col = "darkorange", las = 2, main = "neonicotinoids tweets - frequent words")
+neonics_FREQ.df <- data.frame(keyName=names(neonics_FREQ), value= neonics_FREQ, row.names=NULL)
+neonics_FREQ.df_sort<- neonics_FREQ.df[order(neonics_FREQ.df$value,  decreasing = TRUE),]
+ggplot(neonics_FREQ.df_sort[1:25,], aes(x = keyName, y = value)) + 
+  geom_bar(stat = "identity", fill = "chocolate2") +
+  coord_flip()+
+  theme_classic()+
+  ggtitle("Neonicotinoid tweets - 25 most frequent words - DRAFT")
+```
+
+```{r}
+# the samem for glyphosate
+glyphosate_TDM <- TermDocumentMatrix(glyphosate_VC)
+inspect(glyphosate_TDM[1:10,])
+glyphosate_TDM_m <- as.matrix(glyphosate_TDM)
+dim(glyphosate_TDM_m) # [1] 8102 3716
+glyphosate_FREQ <- rowSums(glyphosate_TDM_m)
+glyphosate_FREQ <- sort(glyphosate_FREQ, decreasing = TRUE)
+glyphosate_FREQ[1:40]
+# roundup monsanto   cancer     food herbicid      amp     evid      use    bayer   chemic     judg   health    found     test    toxic    trial    studi      gmo 
+# 772      562      559      417      383      364      329      322      297      283      283      278      276      272      268      259      254      249 
+# pesticid  weedkil 
+# 244      243 
+# plot frequet words
+# barplot(glyphosate_FREQ[1:25], col = "steelblue1", las = 2, main = "glyphosate tweets - frequent words")
+glyphosate_FREQ.df <- data.frame(keyName=names(glyphosate_FREQ), value= glyphosate_FREQ, row.names=NULL)
+glyphosate_FREQ.df_sort<- glyphosate_FREQ.df[order(glyphosate_FREQ.df$value,  decreasing = TRUE),]
+ggplot(glyphosate_FREQ.df_sort[1:25,], aes(x = keyName, y = value)) + 
+  geom_bar(stat = "identity", fill = "skyblue4") +
+  coord_flip()+
+  theme_classic()+
+  ggtitle("Glyphosate tweets - 25 most frequent words - DRAFT")
+```
+
+###################################################################################
+#### adding stopwords to remove in corpus ####
+###################################################################################
+```{r}
+# neonicotinoids - similar code as above
+neonics_VC <- VCorpus(neonics_vector_source)
+neonics_VC <- tm_map(neonics_VC, content_transformer(tolower))
+neonics_VC <- tm_map(neonics_VC, stripWhitespace)
+neonics_VC <- tm_map(neonics_VC, content_transformer(rm_url)) # qdap package
+neonics_VC <- tm_map(neonics_VC, removePunctuation)
+neonics_VC <- tm_map(neonics_VC, removeNumbers)
+neonics_VC <- tm_map(neonics_VC, removeWords,  c(c("neonics", "neonicotinoids", "neonicotinoid", "neonic", "will", "via",
+                                                   "theorganicview", "theorgancview", "two", "one", "amp"), stopwords("en")))
+neonics_VC<-tm_map(neonics_VC, stemDocument)
+neonics_TDM <- TermDocumentMatrix(neonics_VC)
+neonics_TDM_m <- as.matrix(neonics_TDM)
+neonics_FREQ <- rowSums(neonics_TDM_m)
+neonics_FREQ <- sort(neonics_FREQ, decreasing = TRUE)
+
+# plot frequent words
+neonics_FREQ.df <- data.frame(keyName=names(neonics_FREQ), value= neonics_FREQ, row.names=NULL)
+neonics_FREQ.df_sort<- neonics_FREQ.df[order(neonics_FREQ.df$value,  decreasing = TRUE),]
+neonics_25words <- neonics_FREQ.df_sort[1:25,]
+neonics_25words$keyName <- factor(neonics_25words$keyName, levels = neonics_25words$keyName[order(neonics_25words$value)])
+ggplot(neonics_25words, aes(x = keyName, y = value)) + 
+  geom_col( fill = "chocolate2") +
+  coord_flip()+
+  theme_classic()+
+  ggtitle("Neonicotinoid Tweets - the 25 most frequent words") +
+  xlab("word") +
+  ylab("frequency")
+
+# jpeg('neonics_freq_w_1.jpg')
+# barplot(neonics_FREQ[1:20], col = "darkorange", las = 2, main = "neonicotinoids tweets - 20 frequent words")
+# dev.off()
+```
+
+
+
+
+```{r}
+
+# glyphosate
+glyphosate_VC <- VCorpus(glyphosate_vector_source)
+glyphosate_VC <- tm_map(glyphosate_VC, content_transformer(tolower))
+glyphosate_VC <- tm_map(glyphosate_VC, stripWhitespace)
+glyphosate_VC <- tm_map(glyphosate_VC, content_transformer(rm_url)) # qdap package
+glyphosate_VC <- tm_map(glyphosate_VC, removePunctuation)
+glyphosate_VC <- tm_map(glyphosate_VC, removeNumbers)
+glyphosate_VC <- tm_map(glyphosate_VC, removeWords,  c(c("glyphosate", "via", "amp", "first", "will", "roundup"), stopwords("en")))
+glyphosate_VC<-tm_map(glyphosate_VC, stemDocument)
+glyphosate_TDM <- TermDocumentMatrix(glyphosate_VC)
+glyphosate_TDM_m <- as.matrix(glyphosate_TDM)
+glyphosate_FREQ <- rowSums(glyphosate_TDM_m)
+glyphosate_FREQ <- sort(glyphosate_FREQ, decreasing = TRUE)
+glyphosate_FREQ
+
+# plot frequent words - glyphosate
+glyphosate_FREQ.df <- data.frame(keyName=names(glyphosate_FREQ), value= glyphosate_FREQ, row.names=NULL)
+glyphosate_FREQ.df_sort<- glyphosate_FREQ.df[order(glyphosate_FREQ.df$value,  decreasing = TRUE),]
+glyphosate_25words <- glyphosate_FREQ.df_sort[1:25,]
+glyphosate_25words$keyName <- factor(glyphosate_25words$keyName, levels = glyphosate_25words$keyName[order(glyphosate_25words$value)])
+ggplot(glyphosate_25words, aes(x = keyName, y = value)) + 
+  geom_col( fill = "skyblue4") +
+  coord_flip()+
+  theme_classic()+
+  ggtitle("Glyphosate Tweets - the 25 most frequent words") +
+  xlab("word") +
+  ylab("frequency")
+
+# jpeg('gly_freq_w_2.jpg')
+
+# dev.off()
+```
+
+
+
+###################################################################################
+#### wordcloud #### 
+###################################################################################
+
+```{r}
+# neonics
+neonics_words <- names(neonics_FREQ)
+neonics_data <- data.frame(word = neonics_words, freq = neonics_FREQ)
+wordcloud(neonics_data$word, neonics_data$freq, 
+          use.r.layout=FALSE, max.words=30, random.order=FALSE,
+          colors=brewer.pal(8, "Accent"))
+```
+```{r}
+# glyphosate
+glyphosate_words <- names(glyphosate_FREQ)
+glyphosate_data <- data.frame(word = glyphosate_words, freq = glyphosate_FREQ)
+wordcloud(glyphosate_data$word, glyphosate_data$freq,
+          use.r.layout=FALSE, max.words=30, random.order=FALSE,
+          colors=brewer.pal(8, "Accent"))
+```
+
+###################################################################################
+#### dendrogram ####
+###################################################################################
+
+```{r}
+# adjust TDM - terms kept in the TDM
+neonics_TDM_rsi.1 <- removeSparseTerms(neonics_TDM, sparse = 0.95)
+neonics_TDM_rsi.2 <- removeSparseTerms(neonics_TDM, sparse = 0.97)
+print(neonics_TDM_rsi.1) # terms 16
+print(neonics_TDM_rsi.2) # terms 46
+neonics_TDM_rsi.3 <- removeSparseTerms(neonics_TDM, sparse = 0.96)
+print(neonics_TDM_rsi.3) # terms 22
+neonics_TDM_v.1 <- as.matrix(neonics_TDM_rsi.3)
+neonics_dist <- dist(neonics_TDM_v.1) # distance matrix
+# hierachical cluster
+neonics_hc <- hclust(neonics_dist)
+plot(as.dendrogram(neonics_hc))
+rect.dendrogram(as.dendrogram(neonics_hc), k=2, border = "red")
+```
+
+```{r}
+# the same for glyphosate
+glyphosate_TDM_rsi.1 <- removeSparseTerms(glyphosate_TDM, sparse = 0.95)
+print(glyphosate_TDM_rsi.1) # 25 words
+glyphosate_TDM_v.1 <- removeSparseTerms(glyphosate_TDM_rsi.1, sparse = 0.95)
+glyphosate_dist <- dist(glyphosate_TDM_rsi.1)
+glyphosate_hc <- hclust(glyphosate_dist)
+plot(as.dendrogram(glyphosate_hc))
+rect.dendrogram(as.dendrogram(glyphosate_hc), k=2, border = "red", main = "glyhosate")
+```
+
+###################################################################################
+#### common words cloud and  comparison words cloud ####
+####################################################################################
+
+
+```{r}
+# shared words
+neonics_single <- paste(neonics_txt, collapse = " ")
+glyphosate_single <- paste(glyphosate_txt, collapse = " ")
+pesticides <- c(neonics_single, glyphosate_single)
+pesticides_VC <- VCorpus(VectorSource(pesticides))
+pesticides_VC <- tm_map(pesticides_VC, content_transformer(tolower))
+pesticides_VC <- tm_map(pesticides_VC, stripWhitespace)
+pesticides_VC <- tm_map(pesticides_VC, content_transformer(rm_url)) # qdap package
+pesticides_VC <- tm_map(pesticides_VC, removePunctuation)
+pesticides_VC <- tm_map(pesticides_VC, removeNumbers)
+pesticides_VC <- tm_map(pesticides_VC, removeWords,  
+                        c(c("neonics", "neonicotinoids", "neonicotinoid", "neonic", "glyphosate"),
+                          "will", "via","amp", "theorganicview", "theorgancview", "first", "two", "one", "three", 
+                          "glyphosate", "roundup", stopwords("en")))
+pesticides_VC<-tm_map(pesticides_VC, stemDocument)
+pesticides_TDM <- TermDocumentMatrix(pesticides_VC)
+pesticides_TDM_m <- as.matrix(pesticides_TDM)
+commonality.cloud(pesticides_TDM_m, max.words = 20, colors = c("chocolate2", "skyblue4"),
+                  scale = c(5,.1))
+```
+
+```{r}
+# dissimilar words
+colnames(pesticides_TDM) <- c("neonicotynoids", "glyphosate")
+pesticides_TDM_m <- as.matrix(pesticides_TDM)
+comparison.cloud(pesticides_TDM_m, max.words = 20, colors = c("chocolate2", "skyblue4"),
+                 scale = c(5,.1), title.size = 5)
+```
+
+###################################################################################
+# word associacions 
+# ten materiała nie został ostatecznie wykorzystany w prezentacji. 
+###################################################################################
+
+```{r}
+neonics_assoc <- findAssocs(neonics_TDM, "bee", 0.2)
+print(neonics_assoc)
+# $`bee`
+# opinion     expert        die      popul        two agricultur        one 
+# 0.52       0.49       0.48       0.45       0.43       0.32       0.28 
+bee_df <- list_vect2df(neonics_assoc, col2 = "words", col3 = "score") #qdap package
+
+ggplot(bee_df, aes(score, words)) + 
+  geom_point(size = 3)+
+  theme_classic() +
+  ggtitle("Neonicotinoids tweets: association for word 'bee'")
+```
+  
+
+
+```{r}
+neonics_assoc <- findAssocs(neonics_TDM, "ban", 0.2)
+print(neonics_assoc)
+# plot
+ban_df <- list_vect2df(neonics_assoc, col2 = "words", col3 = "score")
+library(ggplot2)
+ggplot(ban_df, aes(score, words)) + 
+  geom_point(size = 3)
+```
+  
+  
+  
+
+###################################################################################
+#### sentiment analysis
+###################################################################################
+
+
+
+```{r}
+# Hu & Liu's (2004) positive/negative word list
+hu.liu.pos = scan(file.path(getwd(), "positive-words.txt"),
+                  what='character', comment.char=';')
+hu.liu.neg = scan(file.path(getwd(), "negative-words.txt"),
+                  what='character', comment.char=';')
+pos.words = c(hu.liu.pos, 'beneficial')
+neg.words = c(hu.liu.neg, 'harm', 'kill', "cancer", "toxic")
+
+```
+
+
+```{r}
+# TM lab example
+score.sentiment = function(sentences, pos.words, neg.words, .progress='none')
+{
+  require(plyr)
+  require(stringr)
+  
+  # we got a vector of sentences. plyr will handle a list
+  # or a vector as an "l" for us
+  # we want a simple array of scores back, so we use
+  # "l" + "a" + "ply" = "laply":
+  scores = laply(sentences, function(sentence, pos.words, neg.words) {
+    # clean up sentences with R's regex-driven global substitute, gsub():
+    sentence = gsub('[[:punct:]]', '', sentence)
+    sentence = gsub('[[:cntrl:]]', '', sentence)
+    sentence = gsub('\\d+', '', sentence)
+    
+    # and convert to lower case:
+    sentence = tolower(sentence)
+    # split into words. str_split is in the stringr package
+    word.list = str_split(sentence, '\\s+')
+    # sometimes a list() is one level of hierarchy too much
+    words = unlist(word.list)
+    # compare our words to the dictionaries of positive & negative terms
+    pos.matches = match(words, pos.words)
+    neg.matches = match(words, neg.words)
+    # match() returns the position of the matched term or NA
+    # we just want a TRUE/FALSE:
+    pos.matches = !is.na(pos.matches)
+    neg.matches = !is.na(neg.matches)
+    # and conveniently enough, TRUE/FALSE will be treated as 1/0 by sum():
+    score = sum(pos.matches) - sum(neg.matches)
+    return(score)
+  }, pos.words, neg.words, .progress=.progress )
+  
+  scores.df = data.frame(score=scores, text=sentences)
+  return(scores.df)
+}
+```
+
+```{r}
+# neonicotinoids tweets - sentiment n   Hu & Liu's (2004) positive/negative word list
+neonics.result <- score.sentiment(neonics_txt, pos.words, neg.words)
+neonics_sent <- as.data.frame(table(neonics.result$score))
+# -4  -3  -2  -1   0   1   2   3   4 
+#  2   6  20 127 219  61   7   2   1 
+ggplot(neonics_sent, aes(x = Var1, y = Freq)) + 
+  geom_col(fill = "chocolate2") +
+  ggtitle("Sentiment of tweets on neonicotinoids based on  Hu & Liu's (2004) positive/negative word list ") +
+  xlab("sentiment") +
+  ylab("frequency of tweets") +
+  theme_classic()
+```
+```{r}
+
+# neonicotinoids tweets - sentiment n   Hu & Liu's (2004) positive/negative word list
+neonics.result <- score.sentiment(neonics_txt, pos.words, neg.words)
+neonics_sent <- as.data.frame(table(neonics.result$score))
+# -4  -3  -2  -1   0   1   2   3   4 
+#  2   6  20 127 219  61   7   2   1 
+ggplot(neonics_sent, aes(x = Var1, y = Freq)) + 
+  geom_col(fill = "chocolate2") +
+  ggtitle("Sentiment of tweets on neonicotinoids based on  Hu & Liu's (2004) positive/negative word list ") +
+  xlab("sentiment") +
+  ylab("frequency of tweets") +
+  theme_classic()
+```
+
+
+  
+
+
+
+
+
+```{r}
+# glyphosate tweets - sentiment n   Hu & Liu's (2004) positive/negative word list
+glyphosate.result <-  score.sentiment(glyphosate_txt, pos.words, neg.words )
+glyphosate_sent <-  as.data.frame(table(glyphosate.result$score))
+ggplot(glyphosate_sent, aes(x = Var1, y = Freq)) + 
+  geom_col(fill = "skyblue4") +
+  ggtitle("Sentiment of tweets on glyphosate based on  Hu & Liu's (2004) positive/negative word list ") +
+  xlab("sentiment") +
+  ylab("frequency of tweets") +
+  theme_classic()
+```
+
+#### polarity score with qdap ####
+  
+
+
+```{r}
+neonics_pol <- polarity(neonics_txt)
+neonics_pol
+# all total.sentences total.words ave.polarity sd.polarity stan.mean.polarity
+# 1 all             445       10255       -0.062       0.199              -0.31
+neonics_pol$all$polarity
+summary(neonics_pol$all$polarity)
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# -1.0000 -0.2236  0.0000 -0.0618  0.0000  0.8485 
+```
+
+
+
+
+
+
+
+```{r}
+# cut into positive and negative tweets
+neonics.pos.neg <- data.frame(neonics_pol$all$polarity)
+head(neonics.pos.neg)
+neonics.pos.neg[["polarity"]] <- cut(neonics.pos.neg[[ "neonics_pol.all.polarity"]], 
+                                     c(-5,0.0,5), labels = c("negative","positive"))
+# simple plot of clasification
+neonics_classification <- table(neonics.pos.neg$polarity)
+str(neonics_classification)
+class(neonics_classification)
+ggplot(as.data.frame(neonics_classification), aes(x = Var1, y = Freq)) +
+  geom_col(fill = "chocolate2") +
+  theme_classic() +
+  ggtitle("Neonicotynoids - classification of tweets (based on polarity score in qdap package)") +
+  ylab("liczba tweetów") +
+  xlab("klasy")
+```
+  
+
+
+
+```{r}
+### plot polarity score
+ggplot(neonics_pol$all, aes(x = polarity)) + 
+  geom_histogram(binwidth = 0.25, fill = "orange", colour = "chocolate2") +
+  ggtitle("Neonicotinoid tweets: polarity score") +
+  theme_classic()
+```
+
+
+
+
+
+```{r}
+# similar for glyphosate
+glyphosate_pol <- polarity(glyphosate_txt)
+glyphosate_pol
+# all total.sentences total.words ave.polarity sd.polarity stan.mean.polarity
+# 1 all            3716      105279       -0.094       0.246             -0.381
+```
+
+```{r}
+
+# cut into positive and negative tweets
+glyphosate.pos.neg <- data.frame(glyphosate_pol$all$polarity)
+glyphosate.pos.neg[["polarity"]] <- cut(glyphosate.pos.neg[[ "glyphosate_pol.all.polarity"]], 
+                                     c(-5,0.0,5), labels = c("negative","positive"))
+
+# simple plot of clasification
+glyphosate_classification <- table(glyphosate.pos.neg$polarity)
+ggplot(as.data.frame(glyphosate_classification), aes(x = Var1, y = Freq)) +
+  geom_col(fill = "skyblue4") +
+  theme_classic() +
+  ggtitle("Glyphosate - classification of tweets (based on polarity score in qdap package)") +
+  ylab("liczba tweetów") +
+  xlab("klasy")
+```
+
+
+
+
+```{r}
+# plot polarity score
+ggplot(glyphosate_pol$all, aes(x = polarity)) + 
+  geom_histogram(binwidth = 0.25, fill = "blue", colour = 'grey60') +
+  ggtitle("Neonicotinoid tweets: polarity score") +
+  theme_classic()
+```
+
+
+  
+  
+```{r}
+
+#### sentiment with syuzhet package
+neonics_emotion <- get_nrc_sentiment(neonics_txt)
+?get_nrc_sentiment
+neonics_emotion <- cbind(neonics_txt, neonics_emotion)
+neonicsTotals <- data.frame(colSums(neonics_emotion[,c(2:9)]))
+names(neonicsTotals) <- "count"
+neonicsTotals <- cbind("sentiment" = rownames(neonicsTotals), neonicsTotals)
+rownames(neonicsTotals) <- NULL
+ggplot(data = neonicsTotals, aes(x = sentiment, y = count)) +
+  geom_bar(stat = "identity",  fill = "chocolate2") +
+  xlab("Sentiment") + 
+  ylab("Total Count") + 
+  ggtitle("Sentiment Score for Neonicotynoids Tweets") +
+  theme_classic()
+```
+  
+
+
+
+```{r}
+# glyphosate
+glyphosate_emotion <- get_nrc_sentiment(glyphosate_txt)
+glyphosate_emotion <- cbind(glyphosate_txt, glyphosate_emotion)
+glyphosateTotals <- data.frame(colSums(glyphosate_emotion[,c(2:9)]))
+names(glyphosateTotals) <- "count"
+glyphosateTotals <- cbind("sentiment" = rownames(glyphosateTotals), glyphosateTotals)
+rownames(glyphosateTotals) <- NULL
+ggplot(data = glyphosateTotals, aes(x = sentiment, y = count)) +
+  geom_bar(stat = "identity", fill = "skyblue4") +
+  theme(legend.position = "none") +
+  xlab("Sentiment") + 
+  ylab("Total Count") + 
+  ggtitle("Sentiment Score for Glyphosate tweets") +
+  theme_classic()
+```
+
+###################################################################################
+#### bigramy ####
+###################################################################################
+
+
+```{r}
+# to remove URLs
+removeURL <- function(x) gsub("http|https[^[:space:]]*", "", x)
+
+# remove urls form original tweets - neonics
+neonics_wout_url <- removeURL(neonics_txt)
+# data frame from original tweets
+neonics_bigram <-  data.frame(tweet = 1:length(neonics_wout_url), text = neonics_wout_url, stringsAsFactors = FALSE) 
+# tokenize  - two words
+neonics_bigram <- unnest_tokens(neonics_bigram, bigram, text, token = "ngrams", n = 2)
+
+# clean stop words
+neonics_sep <- separate(neonics_bigram, bigram, c("word1", "word2"), sep = " ")
+neonics_bigram <- neonics_sep %>%
+  filter(!word1 %in% (stop_words$word)) %>%
+  filter(!word1 %in%  c("theorganicaview", "neonicotinoids", "neonicotinoid", "via", 
+                        "theorganicview", "theorgancview", "theorgancview", "amp", "neonics",
+                        "neonic"))%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word2 %in%  c("theorganicaview", "neonicotinoids", "neonicotinoid", "via", 
+                        "theorganicview", "theorgancview", "theorgancview", "amp", "neonics",
+                        "neonic"))%>%
+  unite(bigram, word1, word2, sep = " ")
+
+neonics_bigram <- as.data.frame(neonics_bigram) %>%
+  group_by(bigram) %>%
+  count("bigram") %>%
+  arrange(freq, decreasing = TRUE)
+```
+
+
+
+```{r}
+# plot frequent bigrams
+neonics_bigram_count.df <- neonics_bigram[order(neonics_bigram$freq,  decreasing = TRUE),]
+neonics_bigram_count.df <- neonics_bigram_count.df[1:25,]
+neonics_bigram_count.df$bigram <- factor(neonics_bigram_count.df$bigram,
+                                         levels = neonics_bigram_count.df$bigram[order(neonics_bigram_count.df$freq)])
+ggplot(neonics_bigram_count.df, aes(x = bigram, y = freq)) + 
+  geom_col( fill = "chocolate2") +
+  coord_flip()+
+  theme_classic()+
+  ggtitle("Neonicotinoids tweets - the 25 most frequent words")
+```
+
+
+```{r}
+#### similar for glyphosate
+glyphosate_wout_url <- removeURL(glyphosate_txt)
+# data frame from original tweets
+glyphosate_bigram <- data.frame(tweet = 1:length(glyphosate_wout_url), text = glyphosate_wout_url, stringsAsFactors = FALSE) 
+# tokenize - two words
+glyphosate_bigram <- unnest_tokens(glyphosate_bigram, bigram, text, token = "ngrams", n = 2)
+# clean stop words
+glyphosate_sep <- separate(glyphosate_bigram, bigram, c("word1", "word2"), sep = " ")
+glyphosate_bigram <- glyphosate_sep %>%
+  filter(!word1 %in% (stop_words$word)) %>%
+  filter(!word1 %in%  c("glyphosate", "via", "amp", "first", "will", "roundup", "first", "two", "three"))%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word2 %in%  c("glyphosate", "via", "amp", "first", "will", "roundup", "first", "two", "three")) %>%
+  unite(bigram, word1, word2, sep = " ")
+# frequent bigrams
+glyphosate_bigram_freq <- as.data.frame(glyphosate_bigram) %>%
+  group_by(bigram) %>%
+  count("bigram") %>%
+  arrange(freq, decreasing = TRUE)
+
+# plot frequent bigrams
+glyphosate_bigram_count.df <- glyphosate_bigram_freq[order(glyphosate_bigram_freq$freq,  decreasing = TRUE),]
+glyphosate_bigram_count.df <- glyphosate_bigram_count.df[1:25,]
+glyphosate_bigram_count.df$bigram <- factor(glyphosate_bigram_count.df$bigram,
+                                         levels = glyphosate_bigram_count.df$bigram[order(glyphosate_bigram_count.df$freq)])
+ggplot(glyphosate_bigram_count.df, aes(x = bigram, y = freq)) + 
+  geom_col( fill = "skyblue4") +
+  coord_flip()+
+  theme_classic()+
+  ggtitle("glyphosate - 25 most frequent words")
+```
+  
